@@ -1,0 +1,12 @@
+* Libraries for Chez Scheme
+
+WARNING: Everything here is highly unstable, unless otherwise noted. Use at your own risk, things may go very wrong.
+
+** =(socket net)=
+High-level interface to tcp sockets.
+
+See =socket/test.ss= for basic example code.
+** =(socket ffi)= 
+Low-level interface to linux sockets.
+** =(socket ssl-ffi)=
+Low-level interface to OpenSSL.
