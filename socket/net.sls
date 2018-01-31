@@ -5,9 +5,9 @@
           tcp-server-connection-accept
           close-tcp-server-socket
           with-tcp-server-socket)
-  
-  (import (chezscheme) (socket ffi))
-  
+
+  (import (chezscheme) (socket ffi) (socket ssl-ffi))
+
   (define-structure (socket fd))
   (define (make-socket-port socket)
     (let ((p (make-custom-binary-input/output-port (format "socket ~a" socket)
@@ -25,15 +25,58 @@
                                                      (close socket))
                                                    )))
       p))
+  (define (make-ssl-socket-port bio)
+    (let ((p (make-custom-binary-input/output-port (format "ssl socket ~a" bio)
+                                                   ;; read
+                                                   (lambda (bv start n)
+                                                     (bio-read bio bv start n))
+                                                   ;; write
+                                                   (lambda (bv start n)
+                                                     (bio-write bio bv start n))
+                                                   ;; get-position
+                                                   #f
+                                                   ;; set-position!
+                                                   #f
+                                                   (lambda ()
+                                                     #f
+                                                     ;; TODO
+                                                     ;;(close socket)
+                                                     )
+                                                   )))
+      p))
 
-  (define (open-tcp-stream-socket host-name port)
-    (let ((sock (socket 'inet 'stream 'ip)))
-      ;; TODO: resolve host-name to an address
-      (setsockopt sock 1 'socket-option/reuseport #t)
-      (setsockopt sock 1 'socket-option/reuseaddr #t)
-      (if (connect sock (alloc-%sockaddr-in port host-name))
-          (make-socket-port sock)
-          (error 'open-tcp-stream-socket "Error connecting" host-name port sock))))
+  (define open-tcp-stream-socket
+    (case-lambda ((host-name port)
+                  (open-tcp-stream-socket host-name port #f))
+                 ((host-name port ssl?)
+                  (if ssl?
+                      (open-tcp-ssl-stream-socket host-name port)
+                      (open-tcp-plain-stream-socket host-name port)))))
+  (define (ipv4 one two three four)
+  (+ (* one 256 256 256)
+     (* two 256 256)
+     (* three 256)
+     four))
+  (define (open-tcp-plain-stream-socket host-name port)
+    (let* ((sockaddr (address-info-address (parse-and-free-addrinfo (getaddrinfo host-name (format "~a" port) #f)))))
+      (let ((sock (socket 'inet 'stream 'ip)))
+        ;; TODO: resolve host-name to an address
+        (setsockopt sock 1 'socket-option/reuseport #t)
+        (setsockopt sock 1 'socket-option/reuseaddr #t)
+        (if (connect sock (alloc-%sockaddr-in (sockaddr-in-port sockaddr) (apply ipv4 (sockaddr-in-address sockaddr))))
+            (make-socket-port sock)
+            (error 'open-tcp-stream-socket "Error connecting" host-name port sock)))))
+
+  (define (open-tcp-ssl-stream-socket host-name port)
+    (define ctx (ssl-ctx-new (tls-client-method)))
+    (ssl-ctx-load-verify-locations ctx "/etc/ssl/certs/ca-certificates.crt" #f)
+    (let* ((bio (bio-new-ssl-connect ctx))
+           (ssl (bio-get-ssl bio)))
+      (ssl-set-mode ssl ssl-mode-auto-retry)
+      (bio-set-conn-hostname bio (format "~a:~a" host-name port))
+      (bio-do-connect bio)
+      ;; verify
+      (make-ssl-socket-port bio)))
 
   (define (with-tcp-server-socket port backlog-count fun)
     (define p #f)
@@ -47,6 +90,8 @@
 
   (define (open-tcp-server-socket port backlog-count)
     (let ((sock (socket 'inet 'stream 'ip)))
+      (setsockopt sock 1 'socket-option/reuseport #t)
+      (setsockopt sock 1 'socket-option/reuseaddr #t)
       (bind sock (alloc-%sockaddr-in port +inaddr-any+))
       (listen sock backlog-count)
       (make-socket sock)))

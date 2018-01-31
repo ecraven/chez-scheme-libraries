@@ -11,7 +11,19 @@
           ssl-accept
           ssl-read
           ssl-write
-          ssl-free)
+          ssl-free
+          bio-read
+          bio-write
+          ssl-ctx-new
+          ssl-ctx-load-verify-locations
+          ssl-set-mode
+          ssl-mode-auto-retry
+          bio-set-conn-hostname
+          bio-do-connect
+          bio-get-ssl
+          bio-new-ssl-connect
+          tls-client-method
+          )
   (import (chezscheme))
 ;; according to the man page, everything is automatically initialised, so this should not be needed...
 ;; (define (openssl-init-ssl opts settings)
@@ -44,14 +56,17 @@
 (define (bio-ctrl/string bp cmd larg parg)
   ((foreign-procedure "BIO_ctrl" ((* %bio) int long string) long)
    bp cmd larg parg))
-(define (bio-read b n)
-  (let ((bv (make-bytevector n 0)))
-    (let ((res ((foreign-procedure "BIO_read" ((* %bio) u8* int) int)
-                b bv n)))
-      bv)))
-(define (bio-write b bv)
-  ((foreign-procedure "BIO_write" ((* %bio) u8* int) int)
-   b bv (bytevector-length bv)))
+(define (bio-read b bv offset length)
+  (let ((res (with-interrupts-disabled
+              (let ((p (#%$object-address bv (+ (foreign-sizeof 'ptr) 1 offset))))
+                ((foreign-procedure "BIO_read" ((* %bio) void* int) int)
+                 b p length)))))
+    res))
+(define (bio-write b bv offset length)
+  (with-interrupts-disabled
+   (let ((p (#%$object-address bv (+ (foreign-sizeof 'ptr) 1 offset))))
+     ((foreign-procedure "BIO_write" ((* %bio) void* int) int)
+      b p length))))
 (define (bio-puts b string)
   ((foreign-procedure "BIO_puts" ((* %bio) string) int)
    b string))
@@ -72,7 +87,7 @@
 (define (bio-get-ssl bio)
   (let ((ssl (foreign-alloc (foreign-sizeof 'void*))))
     (bio-ctrl bio bio-c-get-ssl 0 ssl)
-    (foreign-ref 'void* 0 ssl)))
+    (make-ftype-pointer %ssl (foreign-ref 'void* 0 ssl))))
 (define (ssl-ctrl ssl cmd larg parg)
   ((foreign-procedure "SSL_ctrl" ((* %ssl) int long void*) long)
    ssl cmd larg parg))
@@ -222,7 +237,8 @@
 ;;     (check-err)
 ;;     (bio-puts bio (format "GET / HTTP/1.1\r\nHost: ~a\r\nConnection: close\r\n\r\n" host))
 ;;     (check-err)
-;;     (bio-read bio 1024)))
+;;     (let ((in (make-bytevector 1024 0)))
+;;       (bio-read bio in 1024))))
 
 ;; (define (test-no-ssl host port)
 ;;   (define bio (bio-new-connect (format "~a:~a" host port)))

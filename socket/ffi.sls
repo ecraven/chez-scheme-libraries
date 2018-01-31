@@ -20,7 +20,18 @@
           setsockopt
           alloc-%sockaddr-in
           %sockaddr-in-address
-          %sockaddr-in-port)
+          %sockaddr-in-port
+          getaddrinfo
+          address-info-flags
+          address-info-family
+          address-info-socket-type
+          address-info-address
+          address-info-canonical-name
+          address-info-next
+          sockaddr-in-address
+          sockaddr-in-port
+          alloc-%addrinfo
+          parse-and-free-addrinfo)
   (import (chezscheme))
 ;;;; TODO
   ;; - https://stackoverflow.com/questions/855544/is-there-a-way-to-flush-a-posix-socket
@@ -311,7 +322,7 @@
       (let ((res ((foreign-procedure "getaddrinfo" (string string (* %addrinfo) void*) int)
                   name
                   service
-                  (addrinfo-foreign hints)
+                  (if hints (addrinfo-foreign hints) (make-ftype-pointer %addrinfo 0))
                   result)))
         (if (zero? res)
             (let ((ai (foreign-ref 'void* result 0)))
@@ -575,7 +586,7 @@
       (let ((i (foreign-alloc (ftype-sizeof int)))
             (size (ftype-sizeof int)))
         (foreign-set! 'int i 0 (if optval 1 0))
-        (display (format "setting boolean socket option ~a to ~a~%" opt-int optval))
+        ;; (display (format "setting boolean socket option ~a to ~a~%" opt-int optval))
         (let ((res (f socket level opt-int i size)))
           (if (zero? res)
               #t
@@ -635,3 +646,23 @@
        (* three 256)
        four))
   (load-shared-object #f))
+
+;; macos port options
+;; SO_DEBUG: 1
+;; SO_REUSEPORT: 512
+;; SO_KEEPALIVE: 8
+;; SO_DONTROUTE: 16
+;; SO_LINGER: 128
+;; SO_BROADCAST: 32
+;; SO_OOBINLINE: 256
+;; SO_SNDBUF: 4097
+;; SO_RCVBUF: 4098
+;; SO_SNDLOWAT: 4099
+;; SO_SNDTIMEO: 4101
+;; SO_RCVTIMEO: 4102
+;; SO_TYPE: 4104
+;; SO_ERROR: 4103
+;; SO_NOSIGPIPE: 4130
+;; SO_NREAD: 4128
+;; SO_NWRITE: 4132
+;; SO_LINGER_SEC: 4224
