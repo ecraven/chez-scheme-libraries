@@ -33,6 +33,12 @@
           alloc-%addrinfo
           parse-and-free-addrinfo)
   (import (chezscheme))
+  (define (activate-thread)
+    #f;;((foreign-procedure "Sactivate_thread" () int))
+    )
+  (define (deactivate-thread)
+    #f;;((foreign-procedure "Sdeactivate_thread" () void))
+    )
 ;;;; TODO
   ;; - https://stackoverflow.com/questions/855544/is-there-a-way-to-flush-a-posix-socket
   ;; 2 shutdown
@@ -224,7 +230,9 @@
                                            (protocol->int protocol))))
                                  (if (= res -1)
                                      (error 'socket "Error opening socket" address-family socket-type protocol)
-                                     res)))))
+                                     (begin
+                                       ;; (format #t "socket: ~s~%" res)
+                                       res))))))
 
   (define-ftype %sockaddr
     (struct (family unsigned-short)))
@@ -400,7 +408,7 @@
       (let ((size (foreign-alloc (ftype-sizeof int))))
         (when remote
           (foreign-set! 'int size 0 (%sockaddr-size remote)))
-        (let ((res ((foreign-procedure "accept4" (int (* %sockaddr) void* int) int)
+        (let ((res ((foreign-procedure __thread "accept4" (int (* %sockaddr) void* int) int)
                     socket
                     (make-ftype-pointer %sockaddr (if remote (ftype-pointer-address remote) 0))
                     (if remote size 0)
@@ -409,22 +417,38 @@
               (if (= (errno) +eagain+)
                   #f
                   (error 'accept4 "Error accepting on socket" socket (strerror (errno))))
-              res))))))
+              (begin
+                ;;(format #t "accept4 -> ~a~%" res)
+                res)))))))
 
   (define send
     (case-lambda ((socket buffer)
                   (send socket buffer #f))
                  ((socket buffer flags)
-                  (let ((res ((foreign-procedure "send" (int u8* size_t int) ssize_t)
+                  (let ((res ((foreign-procedure __thread "send" (int u8* size_t int) ssize_t)
                               socket buffer (bytevector-length buffer) (msg-flag->int flags))))
                     (if (= res -1)
                         (error 'send "Error sending on socket" socket buffer flags (strerror (errno)))
                         res)))
                  ((socket buffer offset length flags)
-                  (let ((res (with-interrupts-disabled
-                              (let ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset))))
-                                ((foreign-procedure "send" (int void* size_t int) ssize_t)
-                                 socket p length (msg-flag->int flags))))))
+                  ;; (let ((res (with-interrupts-disabled
+                  ;;             (let ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset))))
+                  ;;               ((foreign-procedure "send" (int void* size_t int) ssize_t)
+                  ;;                socket p length (msg-flag->int flags))))))
+                  ;;   (if (= res -1)
+                  ;;       (error 'send "Error sending on socket" socket buffer offset length flags (strerror (errno)))
+                  ;;       res))
+                  (let ((res (begin
+                               (lock-object buffer)
+                               (let* ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset)))
+                                      (f (msg-flag->int flags))
+                                      (r (begin
+                                           (deactivate-thread)
+                                           ((foreign-procedure __thread "send" (int void* size_t int) ssize_t)
+                                            socket p length f))))
+                                 (activate-thread)
+                                 (unlock-object buffer)
+                                 r))))
                     (if (= res -1)
                         (error 'send "Error sending on socket" socket buffer offset length flags (strerror (errno)))
                         res)))))
@@ -444,15 +468,32 @@
                         (error 'sendto "Error sending on socket" socket buffer flags (errno) (strerror (errno)))
                         res)))
                  ((socket remote buffer offset length flags)
-                  (let ((res (with-interrupts-disabled
-                              (let ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset))))
-                                ((foreign-procedure "sendto" (int void* size_t int (* %sockaddr) int) ssize_t)
-                                 socket
-                                 p
-                                 length
-                                 (msg-flag->int flags)
-                                 (if remote (make-ftype-pointer %sockaddr (ftype-pointer-address remote)) 0)
-                                 (%sockaddr-size remote))))))
+                  ;; (let ((res (with-interrupts-disabled
+                  ;;             (let ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset))))
+                  ;;               ((foreign-procedure "sendto" (int void* size_t int (* %sockaddr) int) ssize_t)
+                  ;;                socket
+                  ;;                p
+                  ;;                length
+                  ;;                (msg-flag->int flags)
+                  ;;                (if remote (make-ftype-pointer %sockaddr (ftype-pointer-address remote)) 0)
+                  ;;                (%sockaddr-size remote))))))
+                  ;;   (if (= res -1)
+                  ;;       (error 'sendto "Error sending on socket" socket buffer flags (errno) (strerror (errno)))
+                  ;;       res))
+                  (let ((res (begin
+                               (lock-object buffer)
+                               (deactivate-thread)
+                               (let* ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset)))
+                                      (r ((foreign-procedure "sendto" (int void* size_t int (* %sockaddr) int) ssize_t)
+                                          socket
+                                          p
+                                          length
+                                          (msg-flag->int flags)
+                                          (if remote (make-ftype-pointer %sockaddr (ftype-pointer-address remote)) 0)
+                                          (%sockaddr-size remote))))
+                                 (activate-thread)
+                                 (unlock-object buffer)
+                                 r))))
                     (if (= res -1)
                         (error 'sendto "Error sending on socket" socket buffer flags (errno) (strerror (errno)))
                         res)))))
@@ -460,22 +501,40 @@
     (case-lambda ((socket buffer)
                   (recv socket buffer #f))
                  ((socket buffer flags)
-                  (let ((res ((foreign-procedure "recv" (int u8* size_t int) ssize_t)
+                  (let ((res ((foreign-procedure __thread "recv" (int u8* size_t int) ssize_t)
                               socket buffer (bytevector-length buffer) (msg-flag->int flags))))
                     (if (= res -1)
                         (error 'recv "Error receiving on socket" socket buffer flags (strerror (errno)))
                         res)))
                  ((socket buffer offset length flags)
-                  (let ((res (with-interrupts-disabled
-                              (let ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset))))
-                                ((foreign-procedure "recv" (int void* size_t int) ssize_t)
-                                 socket p length (msg-flag->int flags))
-                                ))))
+                  ;; (let ((res (with-interrupts-disabled
+                  ;;             (let ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset))))
+                  ;;               ((foreign-procedure "recv" (int void* size_t int) ssize_t)
+                  ;;                socket p length (msg-flag->int flags))
+                  ;;               ))))
+                  ;;   (if (= res -1)
+                  ;;       (if (= (errno) +eagain+)
+                  ;;           #f
+                  ;;           (error 'recv "Error receiving on socket" (errno) (strerror (errno)) socket buffer offset length flags ))
+                  ;;       res))
+                  (let ((res (begin
+                               (lock-object buffer)
+                               (let* ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset)))
+                                      (f (msg-flag->int flags))
+                                      (r (begin
+                                           (deactivate-thread)
+                                           ((foreign-procedure __thread "recv" (int void* size_t int) ssize_t)
+                                            socket p length f))))
+                                 (activate-thread)
+                                 (unlock-object buffer)
+                                 r))))
                     (if (= res -1)
                         (if (= (errno) +eagain+)
                             #f
                             (error 'recv "Error receiving on socket" (errno) (strerror (errno)) socket buffer offset length flags ))
-                        res)))))
+                        (begin
+                          ;; (format #t "recv ~a of ~a at offset ~a on ~s~%" res length offset (utf8->string buffer))
+                          res))))))
   (define recvfrom
     (case-lambda ((socket remote buffer)
                   (recvfrom socket remote buffer #f))
@@ -494,12 +553,30 @@
                   (let ((size (foreign-alloc (ftype-sizeof int))))
                     (when remote
                       (foreign-set! 'int size 0 (%sockaddr-size remote)))
-                    (let ((res (with-interrupts-disabled
-                                (let ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset))))
-                                  ((foreign-procedure "recvfrom" (int void* size_t int (* %sockaddr) void*) ssize_t)
-                                   socket p length (msg-flag->int flags)
-                                   (if remote (ftype-pointer-address remote) 0)
-                                   (if remote size 0))))))
+                    ;; (let ((res (with-interrupts-disabled
+                    ;;             (let ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset))))
+                    ;;               ((foreign-procedure "recvfrom" (int void* size_t int (* %sockaddr) void*) ssize_t)
+                    ;;                socket p length (msg-flag->int flags)
+                    ;;                (if remote (ftype-pointer-address remote) 0)
+                    ;;                (if remote size 0))))))
+                    ;;   (if (= res -1)
+                    ;;       (error 'recvfrom "Error receiving on socket" socket buffer flags (strerror (errno)))
+                    ;;       res))
+                    (let ((res (begin
+                                 (lock-object buffer)
+                                 (let* ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset)))
+                                        (f (msg-flag->int flags))
+                                        (rem (if remote (ftype-pointer-address remote) 0))
+                                        (rem-size (if remote size 0))
+                                        (r (begin
+                                             (deactivate-thread)
+                                             ((foreign-procedure "recvfrom" (int void* size_t int (* %sockaddr) void*) ssize_t)
+                                              socket p length f
+                                              rem
+                                              rem-size))))
+                                   (activate-thread)
+                                   (unlock-object buffer)
+                                   r))))
                       (if (= res -1)
                           (error 'recvfrom "Error receiving on socket" socket buffer flags (strerror (errno)))
                           res))))))

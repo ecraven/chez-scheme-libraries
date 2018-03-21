@@ -13,7 +13,10 @@
     (let ((p (make-custom-binary-input/output-port (format "socket ~a" socket)
                                                    ;; read
                                                    (lambda (bv start n)
-                                                     (recv socket bv start n #f))
+                                                     (let ((i (recv socket bv start n #f)))
+                                                       ;;(format #t "read ~a from ~a~%" i socket)
+                                                       ;; (format #t "~s ~s ~s~%" start n (utf8->string bv))
+                                                       i))
                                                    ;; write
                                                    (lambda (bv start n)
                                                      (send socket bv start n #f))
@@ -29,9 +32,16 @@
     (let ((p (make-custom-binary-input/output-port (format "ssl socket ~a" bio)
                                                    ;; read
                                                    (lambda (bv start n)
-                                                     (bio-read bio bv start n))
+                                                     ;; TODO: handle retrying better
+                                                     (let ((res (bio-read bio bv start n)))
+                                                       (if (= -1 res)
+                                                           (when (bio-should-retry bio)
+                                                             (sleep (make-time 'time-duration 5000000 0))
+                                                             (bio-read bio bv start n))
+                                                           res)))
                                                    ;; write
                                                    (lambda (bv start n)
+                                                     ;; TODO: handle retrying at all
                                                      (bio-write bio bv start n))
                                                    ;; get-position
                                                    #f
