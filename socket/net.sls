@@ -28,30 +28,38 @@
                                                      (close socket))
                                                    )))
       p))
-  (define (make-ssl-socket-port bio)
+  (define (make-ssl-socket-port bio ctx)
     (let ((p (make-custom-binary-input/output-port (format "ssl socket ~a" bio)
                                                    ;; read
                                                    (lambda (bv start n)
                                                      ;; TODO: handle retrying better
                                                      (let ((res (bio-read bio bv start n)))
                                                        (if (= -1 res)
-                                                           (when (bio-should-retry bio)
-                                                             (sleep (make-time 'time-duration 5000000 0))
-                                                             (bio-read bio bv start n))
+                                                           (if (bio-should-retry bio)
+                                                               (begin
+                                                                 (sleep (make-time 'time-duration 5000000 0))
+                                                                 (bio-read bio bv start n))
+                                                               res)
                                                            res)))
                                                    ;; write
                                                    (lambda (bv start n)
-                                                     ;; TODO: handle retrying at all
-                                                     (bio-write bio bv start n))
+                                                     ;; TODO: handle retrying better
+                                                     (let ((res (bio-write bio bv start n)))
+                                                       (if (= -1 res)
+                                                           (if (bio-should-retry bio)
+                                                               (begin
+                                                                 (sleep (make-time 'time-duration 5000000 0))
+                                                                 (bio-write bio bv start n))
+                                                               res)
+                                                           res))
+                                                     )
                                                    ;; get-position
                                                    #f
                                                    ;; set-position!
                                                    #f
                                                    (lambda ()
-                                                     #f
-                                                     ;; TODO
-                                                     ;;(close socket)
-                                                     )
+                                                     (bio-free-all bio)
+                                                     (ssl-ctx-free ctx))
                                                    )))
       p))
 
@@ -86,7 +94,7 @@
       (bio-set-conn-hostname bio (format "~a:~a" host-name port))
       (bio-do-connect bio)
       ;; verify
-      (make-ssl-socket-port bio)))
+      (make-ssl-socket-port bio ctx)))
 
   (define (with-tcp-server-socket port backlog-count fun)
     (define p #f)

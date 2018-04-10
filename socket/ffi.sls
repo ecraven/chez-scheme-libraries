@@ -408,7 +408,7 @@
       (let ((size (foreign-alloc (ftype-sizeof int))))
         (when remote
           (foreign-set! 'int size 0 (%sockaddr-size remote)))
-        (let ((res ((foreign-procedure __thread "accept4" (int (* %sockaddr) void* int) int)
+        (let ((res ((foreign-procedure __collect_safe "accept4" (int (* %sockaddr) void* int) int)
                     socket
                     (make-ftype-pointer %sockaddr (if remote (ftype-pointer-address remote) 0))
                     (if remote size 0)
@@ -425,7 +425,7 @@
     (case-lambda ((socket buffer)
                   (send socket buffer #f))
                  ((socket buffer flags)
-                  (let ((res ((foreign-procedure __thread "send" (int u8* size_t int) ssize_t)
+                  (let ((res ((foreign-procedure __collect_safe "send" (int u8* size_t int) ssize_t)
                               socket buffer (bytevector-length buffer) (msg-flag->int flags))))
                     (if (= res -1)
                         (error 'send "Error sending on socket" socket buffer flags (strerror (errno)))
@@ -444,7 +444,7 @@
                                       (f (msg-flag->int flags))
                                       (r (begin
                                            (deactivate-thread)
-                                           ((foreign-procedure __thread "send" (int void* size_t int) ssize_t)
+                                           ((foreign-procedure __collect_safe "send" (int void* size_t int) ssize_t)
                                             socket p length f))))
                                  (activate-thread)
                                  (unlock-object buffer)
@@ -501,7 +501,7 @@
     (case-lambda ((socket buffer)
                   (recv socket buffer #f))
                  ((socket buffer flags)
-                  (let ((res ((foreign-procedure __thread "recv" (int u8* size_t int) ssize_t)
+                  (let ((res ((foreign-procedure __collect_safe "recv" (int u8* size_t int) ssize_t)
                               socket buffer (bytevector-length buffer) (msg-flag->int flags))))
                     (if (= res -1)
                         (error 'recv "Error receiving on socket" socket buffer flags (strerror (errno)))
@@ -523,7 +523,7 @@
                                       (f (msg-flag->int flags))
                                       (r (begin
                                            (deactivate-thread)
-                                           ((foreign-procedure __thread "recv" (int void* size_t int) ssize_t)
+                                           ((foreign-procedure __collect_safe "recv" (int void* size_t int) ssize_t)
                                             socket p length f))))
                                  (activate-thread)
                                  (unlock-object buffer)
@@ -581,11 +581,11 @@
                           (error 'recvfrom "Error receiving on socket" socket buffer flags (strerror (errno)))
                           res))))))
 
-  (define (close socket)
-    (let ((res ((foreign-procedure "close" (int) int) socket)))
+  (define (close fd)
+    (let ((res ((foreign-procedure "close" (int) int) fd)))
       (if (zero? res)
           #t
-          (error 'close "Error closing socket" socket (strerror (errno))))))
+          (error 'close "Error closing fd" fd (strerror (errno))))))
 
   (define (getsockname socket address)
     (let ((size (foreign-alloc (ftype-sizeof int))))

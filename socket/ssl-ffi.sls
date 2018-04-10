@@ -1,6 +1,7 @@
 #!chezscheme
 (library (socket ssl-ffi)
   (export ssl-ctx-new
+          ssl-ctx-free
           tls-server-method
           ssl-ctx-use-certificate-file
           ssl-ctx-use-certificate-chain-file
@@ -12,6 +13,8 @@
           ssl-read
           ssl-write
           ssl-free
+          bio-free
+          bio-free-all
           bio-read
           bio-write
           bio-should-retry
@@ -57,6 +60,12 @@
   (define (bio-ctrl/string bp cmd larg parg)
     ((foreign-procedure "BIO_ctrl" ((* %bio) int long string) long)
      bp cmd larg parg))
+  (define (bio-free bio)
+    ((foreign-procedure "BIO_free" ((* %bio)) int)
+     bio))
+  (define (bio-free-all bio)
+    ((foreign-procedure "BIO_free_all" ((* %bio)) void)
+     bio))
   (define (bio-read b bv offset length)
     ;; (let ((res (with-interrupts-disabled
     ;;             (let ((p (#%$object-address bv (+ (foreign-sizeof 'ptr) 1 offset))))
@@ -66,7 +75,7 @@
     (let ((res (begin
                  (lock-object bv)
                  (let* ((p (#%$object-address bv (+ (foreign-sizeof 'ptr) 1 offset)))
-                        (r ((foreign-procedure "BIO_read" ((* %bio) void* int) int)
+                        (r ((foreign-procedure __collect_safe "BIO_read" ((* %bio) void* int) int)
                             b p length)))
                    (unlock-object bv)
                    r))))
@@ -74,7 +83,7 @@
   (define (bio-write b bv offset length)
     (with-interrupts-disabled
      (let ((p (#%$object-address bv (+ (foreign-sizeof 'ptr) 1 offset))))
-       ((foreign-procedure "BIO_write" ((* %bio) void* int) int)
+       ((foreign-procedure __collect_safe "BIO_write" ((* %bio) void* int) int)
         b p length))))
   (define (bio-puts b string)
     ((foreign-procedure "BIO_puts" ((* %bio) string) int)
@@ -82,6 +91,9 @@
   (define (ssl-ctx-new ssl-method)
     ((foreign-procedure "SSL_CTX_new" ((* %ssl_method)) (* %ssl_ctx))
      ssl-method))
+  (define (ssl-ctx-free ctx)
+    ((foreign-procedure "SSL_CTX_free" ((* %ssl_ctx)) void)
+     ctx))
   (define (tls-client-method)
     ((foreign-procedure "TLS_client_method" () (* %ssl_method))))
   (define (tls-server-method)
@@ -110,9 +122,6 @@
   (define (ssl-get-verify-result ssl)
     ((foreign-procedure "SSL_get_verify_result" ((* %ssl)) long)
      ssl))
-  (define (ssl-ctx-free ctx)
-    ((foreign-procedure "SSL_CTX_free" ((* %ssl_ctx)) void)
-     ctx))
   (define (err-get-error)
     ((foreign-procedure "ERR_get_error" () unsigned-long)))
   (define (err-reason-error-string errno)
@@ -257,8 +266,8 @@
 
   ;; (define (test-ssl-server port)
   ;;   (let ((ctx (ssl-ctx-new (tls-server-method))))
-  ;;     (ssl-ctx-use-certificate-file ctx "/certificates/cert.crt" ssl-filetype-pem)
-  ;;     (ssl-ctx-use-private-key-file ctx "/certificates/key.key" ssl-filetype-pem)
+  ;;     (ssl-ctx-use-certificate-file ctx "/path/to/crt" ssl-filetype-pem)
+  ;;     (ssl-ctx-use-private-key-file ctx "/path/to/key" ssl-filetype-pem)
   ;;     (let ((s (let ((sock (socket 'inet 'stream 'ip))) ;; (if blocking? '(stream) '(stream non-blocking))
   ;;                (bind sock (alloc-%sockaddr-in port +inaddr-any+))
   ;;                (listen sock 1)
