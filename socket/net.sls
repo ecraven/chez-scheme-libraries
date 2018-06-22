@@ -33,26 +33,25 @@
                                                    ;; read
                                                    (lambda (bv start n)
                                                      ;; TODO: handle retrying better
-                                                     (let ((res (bio-read bio bv start n)))
+                                                     (let loop ((res (bio-read bio bv start n)))
                                                        (if (= -1 res)
                                                            (if (bio-should-retry bio)
                                                                (begin
                                                                  (sleep (make-time 'time-duration 5000000 0))
-                                                                 (bio-read bio bv start n))
+                                                                 (loop (bio-read bio bv start n)))
                                                                res)
                                                            res)))
                                                    ;; write
                                                    (lambda (bv start n)
                                                      ;; TODO: handle retrying better
-                                                     (let ((res (bio-write bio bv start n)))
+                                                     (let loop ((res (bio-write bio bv start n)))
                                                        (if (= -1 res)
                                                            (if (bio-should-retry bio)
                                                                (begin
                                                                  (sleep (make-time 'time-duration 5000000 0))
-                                                                 (bio-write bio bv start n))
+                                                                 (loop (bio-write bio bv start n)))
                                                                res)
-                                                           res))
-                                                     )
+                                                           res)))
                                                    ;; get-position
                                                    #f
                                                    ;; set-position!

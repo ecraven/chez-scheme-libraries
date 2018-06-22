@@ -33,12 +33,6 @@
           alloc-%addrinfo
           parse-and-free-addrinfo)
   (import (chezscheme))
-  (define (activate-thread)
-    #f;;((foreign-procedure "Sactivate_thread" () int))
-    )
-  (define (deactivate-thread)
-    #f;;((foreign-procedure "Sdeactivate_thread" () void))
-    )
 ;;;; TODO
   ;; - https://stackoverflow.com/questions/855544/is-there-a-way-to-flush-a-posix-socket
   ;; 2 shutdown
@@ -443,10 +437,8 @@
                                (let* ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset)))
                                       (f (msg-flag->int flags))
                                       (r (begin
-                                           (deactivate-thread)
                                            ((foreign-procedure __collect_safe "send" (int void* size_t int) ssize_t)
                                             socket p length f))))
-                                 (activate-thread)
                                  (unlock-object buffer)
                                  r))))
                     (if (= res -1)
@@ -482,7 +474,6 @@
                   ;;       res))
                   (let ((res (begin
                                (lock-object buffer)
-                               (deactivate-thread)
                                (let* ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset)))
                                       (r ((foreign-procedure "sendto" (int void* size_t int (* %sockaddr) int) ssize_t)
                                           socket
@@ -491,7 +482,6 @@
                                           (msg-flag->int flags)
                                           (if remote (make-ftype-pointer %sockaddr (ftype-pointer-address remote)) 0)
                                           (%sockaddr-size remote))))
-                                 (activate-thread)
                                  (unlock-object buffer)
                                  r))))
                     (if (= res -1)
@@ -522,10 +512,8 @@
                                (let* ((p (#%$object-address buffer (+ (foreign-sizeof 'ptr) 1 offset)))
                                       (f (msg-flag->int flags))
                                       (r (begin
-                                           (deactivate-thread)
                                            ((foreign-procedure __collect_safe "recv" (int void* size_t int) ssize_t)
                                             socket p length f))))
-                                 (activate-thread)
                                  (unlock-object buffer)
                                  r))))
                     (if (= res -1)
@@ -569,12 +557,10 @@
                                         (rem (if remote (ftype-pointer-address remote) 0))
                                         (rem-size (if remote size 0))
                                         (r (begin
-                                             (deactivate-thread)
                                              ((foreign-procedure "recvfrom" (int void* size_t int (* %sockaddr) void*) ssize_t)
                                               socket p length f
                                               rem
                                               rem-size))))
-                                   (activate-thread)
                                    (unlock-object buffer)
                                    r))))
                       (if (= res -1)
